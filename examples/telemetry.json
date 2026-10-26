@@ -1,0 +1,7 @@
+{
+  "connect": ["tcp/127.0.0.1:7447"],
+  "topics": [
+    {"topic": "/uav1/pose", "type": "geometry_msgs/PoseStamped", "key": "robots/uav1/pose", "max_hz": 10},
+    {"topic": "/uav1/trajectory", "type": "nav_msgs/Path", "key": "robots/uav1/trajectory", "max_hz": 2}
+  ]
+}
