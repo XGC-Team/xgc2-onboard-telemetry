@@ -26,6 +26,10 @@ source /opt/ros/noetic/setup.bash
 onboard-telemetry --config /path/to/telemetry.json
 ```
 
+For callers that already hold the configuration as JSON, pass it as one
+argument with `--config-json` instead of `--config`; the two options are mutually
+exclusive.
+
 The installer copies only this product and its entrypoint. An absolute prefix
 may be supplied without sudo when writable. Source any additional ROS workspace
 that contains configured message types before starting the sender.
@@ -42,6 +46,11 @@ Debian dependencies are Python, Noetic `rospy` and `roslib`. The Zenoh SDK is
 provided by the runtime baseline, not by this package or by its installation
 scripts; its required version is recorded in `requirements-runtime.txt`.
 Installing or removing this package does not manage ROS, the SDK, or services.
+The package also installs the `xgc2-onboard-telemetry` XGC process definition.
+It accepts a `configuration` JSON object, `rosMasterUri` and `rosIp`, sources
+the Noetic setup, and stops with SIGINT. The process supervisor serializes the
+object directly into one `--config-json` argument. The definition declares no
+control service.
 
 Example configuration is in [examples/telemetry.json](examples/telemetry.json).
 `connect` must contain one or more Zenoh endpoint strings. Each topic and key

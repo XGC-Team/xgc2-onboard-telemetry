@@ -87,9 +87,24 @@ def main():
             raw = rospy.Publisher('/test/raw', RawFloat, queue_size=1)
             ignored = rospy.Publisher('/test/not_configured', String, queue_size=1)
             wrong = rospy.Publisher('/test/wrong_type', String, queue_size=1)
-            executable = os.environ.get('TELEMETRY_BIN')
-            command = [executable] if executable else [sys.executable, '-m', 'onboard_telemetry']
-            sender = subprocess.Popen(command + ['--config', config_path],
+            definition_path = os.environ.get('TELEMETRY_PROCESS_DEFINITION')
+            sender_env = os.environ.copy()
+            if definition_path:
+                with open(definition_path) as f:
+                    definition = json.load(f)['definitions'][0]
+                params = {'configuration': config, 'rosMasterUri': os.environ['ROS_MASTER_URI'], 'rosIp': '127.0.0.1'}
+                renderer = os.environ.get('TELEMETRY_RENDERER')
+                encoded = json.dumps(params['configuration'], separators=(',', ':'))
+                if renderer:
+                    encoded = subprocess.run([renderer], input=encoded, text=True, stdout=subprocess.PIPE, check=True).stdout
+                    assert json.loads(encoded) == params['configuration']
+                command = [definition['command']['executable']] + [encoded if arg == '${configuration}' else arg for arg in definition['command']['args']]
+                for key, value in definition['command']['env'].items():
+                    sender_env[key] = params[value[2:-1]] if value.startswith('${') else value
+            else:
+                executable = os.environ.get('TELEMETRY_BIN')
+                command = ([executable] if executable else [sys.executable, '-m', 'onboard_telemetry']) + ['--config', config_path]
+            sender = subprocess.Popen(command, env=sender_env,
                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             wait_until(lambda: sender.poll() is not None or (count.get_num_connections() == 1 and text.get_num_connections() == 1 and raw.get_num_connections() == 1), 15, 'configured ROS connections')
             if sender.poll() is not None:

@@ -1,4 +1,7 @@
 import copy
+import json
+import subprocess
+import sys
 import threading
 import time
 import unittest
@@ -15,6 +18,33 @@ CONFIG = {'connect': ['tcp/127.0.0.1:7447'], 'topics': [
 class ConfigTests(unittest.TestCase):
     def test_explicit_mapping(self):
         self.assertEqual(parse_config(copy.deepcopy(CONFIG)), CONFIG)
+
+    def test_cli_requires_exactly_one_config_source(self):
+        for arguments in ([], ['--config', 'unused', '--config-json', json.dumps(CONFIG)]):
+            result = subprocess.run([sys.executable, '-m', 'onboard_telemetry'] + arguments,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2, result.stderr)
+        result = subprocess.run([sys.executable, '-m', 'onboard_telemetry', '--config-json', '{invalid'],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('onboard-telemetry:', result.stderr)
+
+    def test_process_definition_uses_direct_arguments_without_a_service(self):
+        from pathlib import Path
+        path = Path(__file__).resolve().parents[1] / 'process-definitions/xgc2-onboard-telemetry.json'
+        document = json.loads(path.read_text())
+        self.assertEqual(document['apiVersion'], 'xgc.execution.process/v1')
+        definition = document['definitions'][0]
+        self.assertEqual(definition['id'], 'xgc2-onboard-telemetry')
+        self.assertEqual(definition['setupFiles'], ['/opt/ros/noetic/setup.bash'])
+        self.assertEqual(definition['parameters']['properties']['configuration']['type'], 'json')
+        self.assertEqual(definition['command']['args'], ['--config-json', '${configuration}'])
+        self.assertEqual(definition['command']['executable'], '/usr/bin/onboard-telemetry')
+        self.assertEqual(definition['command']['envParameter'], 'environment')
+        self.assertEqual(definition['readiness']['kind'], 'none')
+        self.assertNotIn('services', definition)
+        self.assertEqual(definition['stop']['signal'], 'SIGINT')
+        self.assertEqual(set(definition['parameters']['required']), {'configuration', 'rosMasterUri', 'rosIp'})
 
     def test_rejects_missing_or_ambiguous_configuration(self):
         cases = []

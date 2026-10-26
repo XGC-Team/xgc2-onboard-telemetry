@@ -14,19 +14,24 @@ mapfile -t packages < <(find "$tmp/packages" -maxdepth 1 -type f -name '*.deb')
 [[ ${#packages[@]} == 1 ]]
 deb="${packages[0]}"
 [[ $(dpkg-deb -f "$deb" Package) == xgc2-onboard-telemetry ]]
+[[ $(dpkg-deb -f "$deb" Version) == "$(cat "$root/VERSION")" ]]
 [[ $(dpkg-deb -f "$deb" Architecture) == all ]]
 [[ $(dpkg-deb -f "$deb" Depends) == 'python3 (>= 3.8), ros-noetic-rospy, ros-noetic-roslib' ]]
 ! dpkg-deb -c "$deb" | grep -E 'site-packages|dist-packages|libzenoh|/zenoh/'
 printf 'preserve\n' > "$tmp/unrelated"
 dpkg --install "$deb"
 [[ -x /usr/bin/onboard-telemetry ]]
+definition=/usr/share/xgc2/process-definitions/xgc2-onboard-telemetry.json
+[[ -f "$definition" ]]
+cmp "$definition" "$root/process-definitions/xgc2-onboard-telemetry.json"
 export PYTHONDONTWRITEBYTECODE=1
 /usr/bin/onboard-telemetry --help >/dev/null
 export TELEMETRY_BIN=/usr/bin/onboard-telemetry
+export TELEMETRY_PROCESS_DEFINITION="$definition"
 export PYTHONPATH="/usr/lib/onboard-telemetry${PYTHONPATH:+:$PYTHONPATH}"
 python3 "$root/tests/integration_ros_zenoh.py"
 dpkg --remove xgc2-onboard-telemetry
-[[ ! -e /usr/bin/onboard-telemetry && ! -e /usr/lib/onboard-telemetry/onboard_telemetry/sender.py ]]
+[[ ! -e /usr/bin/onboard-telemetry && ! -e /usr/lib/onboard-telemetry/onboard_telemetry/sender.py && ! -e "$definition" ]]
 [[ $(cat "$tmp/unrelated") == preserve ]]
 python3 -c 'import zenoh, rospy'
 echo 'PASS: Debian package build, installation, real data flow and removal'

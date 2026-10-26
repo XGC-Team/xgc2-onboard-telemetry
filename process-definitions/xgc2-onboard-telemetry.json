@@ -1,0 +1,49 @@
+{
+  "apiVersion": "xgc.execution.process/v1",
+  "definitions": [
+    {
+      "id": "xgc2-onboard-telemetry",
+      "version": "1.0.0",
+      "label": "Onboard ROS telemetry sender",
+      "description": "Forward configured local ROS messages to explicit Zenoh keys.",
+      "parameters": {
+        "properties": {
+          "configuration": {
+            "type": "json",
+            "description": "Configuration object with explicit Zenoh connect endpoints and topic mappings."
+          },
+          "rosMasterUri": {
+            "type": "string",
+            "description": "Local ROS master URI.",
+            "output": true
+          },
+          "rosIp": {
+            "type": "string",
+            "description": "ROS IP advertised by this process.",
+            "output": true
+          },
+          "environment": {
+            "type": "json",
+            "default": {},
+            "description": "Additional environment variables; explicit ROS settings take precedence."
+          }
+        },
+        "required": ["configuration", "rosMasterUri", "rosIp"]
+      },
+      "setupFiles": ["/opt/ros/noetic/setup.bash"],
+      "command": {
+        "executable": "/usr/bin/onboard-telemetry",
+        "args": ["--config-json", "${configuration}"],
+        "envParameter": "environment",
+        "env": {
+          "ROS_MASTER_URI": "${rosMasterUri}",
+          "ROS_IP": "${rosIp}",
+          "ROS_HOSTNAME": ""
+        }
+      },
+      "readiness": {"kind": "none"},
+      "stop": {"signal": "SIGINT", "graceMs": 8000},
+      "logs": {"maxBytes": 1048576, "files": 3}
+    }
+  ]
+}
