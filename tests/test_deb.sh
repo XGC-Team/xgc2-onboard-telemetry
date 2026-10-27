@@ -30,6 +30,7 @@ export TELEMETRY_BIN=/usr/bin/onboard-telemetry
 export TELEMETRY_PROCESS_DEFINITION="$definition"
 export PYTHONPATH="/usr/lib/onboard-telemetry${PYTHONPATH:+:$PYTHONPATH}"
 python3 "$root/tests/integration_ros_zenoh.py"
+python3 "$root/tests/integration_reconnect.py"
 dpkg --remove xgc2-onboard-telemetry
 [[ ! -e /usr/bin/onboard-telemetry && ! -e /usr/lib/onboard-telemetry/onboard_telemetry/sender.py && ! -e "$definition" ]]
 [[ $(cat "$tmp/unrelated") == preserve ]]

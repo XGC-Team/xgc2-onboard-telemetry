@@ -66,6 +66,7 @@ class ConfigTests(unittest.TestCase):
 class SchedulerTests(unittest.TestCase):
     def test_latest_only_and_no_periodic_replay(self):
         scheduler = LatestScheduler(CONFIG['topics'])
+        for index in range(len(CONFIG['topics'])): scheduler.set_matched(index, True)
         scheduler.offer(0, b'first')
         self.assertEqual(scheduler.take(), (0, b'first'))
         scheduler.sent(0)
@@ -81,8 +82,22 @@ class SchedulerTests(unittest.TestCase):
         scheduler.close(); thread.join(1)
         self.assertEqual(result, [None])
 
+    def test_unmatched_inputs_are_discarded_and_pending_is_cleared(self):
+        scheduler = LatestScheduler(CONFIG['topics'])
+        for _ in range(10000): scheduler.offer(0, b'unmatched')
+        self.assertIsNone(scheduler._slots[0]['pending'])
+        scheduler.set_matched(0, True)
+        scheduler.offer(0, b'old')
+        scheduler.set_matched(0, False)
+        self.assertIsNone(scheduler._slots[0]['pending'])
+        scheduler.set_matched(0, True)
+        scheduler.offer(0, b'fresh')
+        self.assertEqual(scheduler.take(), (0, b'fresh'))
+        scheduler.close()
+
     def test_other_topic_not_blocked_by_throttled_slot(self):
         scheduler = LatestScheduler(CONFIG['topics'])
+        for index in range(len(CONFIG['topics'])): scheduler.set_matched(index, True)
         scheduler.offer(1, b'first'); self.assertEqual(scheduler.take(), (1, b'first')); scheduler.sent(1)
         scheduler.offer(1, b'waiting'); scheduler.offer(0, b'now')
         self.assertEqual(scheduler.take(), (0, b'now'))

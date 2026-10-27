@@ -13,9 +13,11 @@ key and its maximum send rate.
   The product's installer does not install dependencies. The SDK's official
   wheels include Python 3.8 and Linux x86-64/ARM64 support; choose the wheel
   matching the target's architecture and libc. See [SDK package and files](https://pypi.org/project/eclipse-zenoh/1.5.1/).
-- A reachable Zenoh router or peer listening on the configured endpoint. The
-  sender uses client mode with explicit `connect` endpoints and disables both
-  multicast and gossip scouting.
+- A Zenoh router or peer reachable at the configured endpoint. The sender can
+  start before the receiver and reconnect after it restarts. It uses Zenoh peer
+  mode with no listening endpoint, connects only to the explicitly configured
+  endpoints, and disables multicast and gossip scouting. Zenoh retries connections
+  in the background with backoff from one to four seconds.
 
 ## Install and run
 
@@ -68,6 +70,13 @@ not transmit type metadata. ROS type and MD5 are checked during the ROS
 connection handshake. The payload can be decoded using the agreed ROS message
 type's standard deserializer.
 
+A native Zenoh matching listener tracks whether each key has a consumer. Without
+a match, incoming raw ROS bytes are discarded; no Zenoh publication is attempted
+and pending bytes are cleared when the match disappears. Only new input is sent
+after a consumer returns. This does not unsubscribe from the local ROS topic;
+ROS still serializes and transports its messages locally. Matching changes and
+a send can race, so an in-flight publication can still be dropped on disconnect.
+
 Each ROS subscription uses `queue_size=1`. A single scheduler holds at most
 one unsent value per mapping, overwrites it with newer input, and uses monotonic
 wall time to enforce the maximum rate. It sends a pending value once, with no
@@ -81,6 +90,7 @@ an archive or a delivery guarantee.
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 # In a ROS Noetic environment with the SDK above and a sourced ROS setup:
 python3 tests/integration_ros_zenoh.py
+python3 tests/integration_reconnect.py
 # In a disposable root-owned Noetic container with the SDK available:
 ./tests/test_deb.sh
 ```
