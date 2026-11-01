@@ -70,19 +70,23 @@ not transmit type metadata. ROS type and MD5 are checked during the ROS
 connection handshake. The payload can be decoded using the agreed ROS message
 type's standard deserializer.
 
-A native Zenoh matching listener tracks whether each key has a consumer. Without
-a match, incoming raw ROS bytes are discarded; no Zenoh publication is attempted
-and pending bytes are cleared when the match disappears. Only new input is sent
-after a consumer returns. This does not unsubscribe from the local ROS topic;
-ROS still serializes and transports its messages locally. Matching changes and
-a send can race, so an in-flight publication can still be dropped on disconnect.
+A native Zenoh matching listener tracks whether each key has a consumer. The
+sender subscribes to a local ROS topic only while its key is matched, and
+unregisters it when the match disappears. The sender's existing owner loop
+performs registration and cleanup; the matching callback only records the
+change. Pending values are cleared and late callbacks from a retired ROS
+subscription cannot enter the next matching generation. ROS publisher latching
+retains its usual semantics: a newly registered subscriber may receive the
+publisher's current latched value. A publication already handed to Zenoh can
+still race a matching change.
 
 Each ROS subscription uses `queue_size=1`. A single scheduler holds at most
 one unsent value per mapping, overwrites it with newer input, and uses monotonic
 wall time to enforce the maximum rate. It sends a pending value once, with no
-periodic replay, and does not create a worker thread per topic. The Zenoh
-publisher uses drop-on-congestion; this is a live telemetry stream rather than
-an archive or a delivery guarantee.
+periodic replay, and does not create a worker thread per topic. A later pending
+deadline does not wake the scheduler while it is waiting for an earlier one.
+The Zenoh publisher uses drop-on-congestion; this is a live telemetry stream
+rather than an archive or a delivery guarantee.
 
 ## Tests
 

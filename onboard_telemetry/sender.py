@@ -10,30 +10,42 @@ class LatestScheduler:
         self._condition = threading.Condition()
         self._clock = clock
         self._slots = [{'interval': 1.0 / item['max_hz'], 'next': 0.0,
-                        'pending': None, 'matched': False} for item in mappings]
+                        'pending': None, 'matched': False, 'generation': 0,
+                        'reconcile': False} for item in mappings]
         self._closed = False
+        self._waiting_until = None
 
     def set_matched(self, index, matched):
         with self._condition:
+            if self._closed:
+                return None
             slot = self._slots[index]
+            matched = bool(matched)
+            if slot['matched'] == matched:
+                return slot['generation']
             slot['matched'] = matched
-            if not matched:
-                # Never replay samples captured for a departed receiver.
-                slot['pending'] = None
+            slot['generation'] += 1
+            # A new match cannot inherit values captured by a retired binding.
+            slot['pending'] = None
+            slot['reconcile'] = True
             self._condition.notify()
+            return slot['generation']
 
-    def is_matched(self, index):
+    def is_matched(self, index, generation):
         with self._condition:
-            return not self._closed and self._slots[index]['matched']
-
-    def offer(self, index, payload):
-        with self._condition:
-            if self._closed or not self._slots[index]['matched']:
-                return
             slot = self._slots[index]
+            return not self._closed and slot['matched'] and slot['generation'] == generation
+
+    def offer(self, index, generation, payload):
+        with self._condition:
+            slot = self._slots[index]
+            if self._closed or not slot['matched'] or slot['generation'] != generation:
+                return
             was_empty = slot['pending'] is None
             slot['pending'] = payload
-            if was_empty:
+            # Only the single take() owner waits here. A later deadline cannot
+            # change its current wake-up; an earlier one must interrupt it.
+            if was_empty and self._waiting_until is not None and slot['next'] < self._waiting_until:
                 self._condition.notify()
 
     def close(self):
@@ -44,19 +56,31 @@ class LatestScheduler:
     def take(self):
         with self._condition:
             while not self._closed:
+                for index, slot in enumerate(self._slots):
+                    if slot['reconcile']:
+                        slot['reconcile'] = False
+                        return 'match', index, slot['generation'], slot['matched']
                 waiting = [(slot['next'], index) for index, slot in enumerate(self._slots)
                            if slot['pending'] is not None]
                 if not waiting:
-                    self._condition.wait()
+                    self._waiting_until = float('inf')
+                    try:
+                        self._condition.wait()
+                    finally:
+                        self._waiting_until = None
                     continue
                 deadline, index = min(waiting)
                 delay = deadline - self._clock()
                 if delay > 0:
-                    self._condition.wait(delay)
+                    self._waiting_until = deadline
+                    try:
+                        self._condition.wait(delay)
+                    finally:
+                        self._waiting_until = None
                     continue
                 payload = self._slots[index]['pending']
                 self._slots[index]['pending'] = None
-                return index, payload
+                return 'sample', index, self._slots[index]['generation'], payload
             return None
 
     def sent(self, index):
@@ -100,34 +124,50 @@ def run(config):
 
     scheduler = LatestScheduler(config['topics'])
     session = zenoh.open(zenoh_config(zenoh, config['connect']))
-    subscribers = []
+    subscribers = [None] * len(config['topics'])
     publishers = []
     listeners = []
     try:
-        publishers = [session.declare_publisher(item['key'], congestion_control=zenoh.CongestionControl.DROP)
-                      for item in config['topics']]
+        for item in config['topics']:
+            publishers.append(session.declare_publisher(item['key'], congestion_control=zenoh.CongestionControl.DROP))
         for index, publisher in enumerate(publishers):
             listeners.append(publisher.declare_matching_listener(
                 lambda status, i=index: scheduler.set_matched(i, status.matching)))
         rospy.on_shutdown(scheduler.close)
-        for index, (item, raw_type) in enumerate(zip(config['topics'], raw_types)):
-            subscribers.append(rospy.Subscriber(item['topic'], raw_type,
-                lambda message, i=index: scheduler.offer(i, message._buff), queue_size=1))
-        rospy.loginfo('onboard telemetry: forwarding %d configured topics', len(subscribers))
+        rospy.loginfo('onboard telemetry: configured %d topics', len(config['topics']))
         while not rospy.is_shutdown():
             entry = scheduler.take()
             if entry is None:
                 break
-            index, payload = entry
-            if scheduler.is_matched(index):
-                publishers[index].put(payload)
+            kind, index, generation, value = entry
+            if kind == 'match':
+                previous = subscribers[index]
+                if previous is not None:
+                    previous.unregister()
+                    subscribers[index] = None
+                if value and scheduler.is_matched(index, generation):
+                    item = config['topics'][index]
+                    subscriber = rospy.Subscriber(item['topic'], raw_types[index],
+                        lambda message, i=index, g=generation: scheduler.offer(i, g, message._buff), queue_size=1)
+                    subscribers[index] = subscriber
+                    if not scheduler.is_matched(index, generation):
+                        subscriber.unregister()
+                        subscribers[index] = None
+                continue
+            if scheduler.is_matched(index, generation):
+                publishers[index].put(value)
                 scheduler.sent(index)
     finally:
         scheduler.close()
-        for subscriber in subscribers:
-            subscriber.unregister()
-        for listener in listeners:
-            listener.undeclare()
-        for publisher in publishers:
-            publisher.undeclare()
-        session.close()
+        cleanup_error = None
+        resources = ([(item, 'unregister') for item in subscribers if item is not None]
+                     + [(item, 'undeclare') for item in listeners]
+                     + [(item, 'undeclare') for item in publishers] + [(session, 'close')])
+        for item, method in resources:
+            try:
+                getattr(item, method)()
+            except Exception as error:
+                if cleanup_error is None:
+                    cleanup_error = error
+        if cleanup_error is not None:
+            raise cleanup_error

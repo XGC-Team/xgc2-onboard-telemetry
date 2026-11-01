@@ -99,8 +99,14 @@ def main():
                 command = [executable] if executable else [sys.executable, '-m', 'onboard_telemetry']
                 process = subprocess.Popen(command + ['--config', path], stdout=subprocess.PIPE,
                                            stderr=subprocess.STDOUT, text=True)
-                wait_for(lambda: process.poll() is not None or topic.get_num_connections() == 1,
-                         'sender ROS subscription with no Zenoh receiver')
+                def node_registered():
+                    try:
+                        code, _, uri = xmlrpc.client.ServerProxy(os.environ['ROS_MASTER_URI']).lookupNode(
+                            '/test', '/onboard_telemetry')
+                        return code == 1 and xmlrpc.client.ServerProxy(uri).getPid('/test')[2] == process.pid
+                    except (OSError, xmlrpc.client.Error):
+                        return False
+                wait_for(lambda: process.poll() is not None or node_registered(), 'sender ROS node')
                 if process.poll() is not None:
                     raise AssertionError('sender exited: ' + process.stdout.read())
                 return process
@@ -143,29 +149,32 @@ def main():
             before = cpu_seconds(sender.pid)
             burst(100, 150)
             time.sleep(2.2)
+            assert topic.get_num_connections() == 0, 'ROS subscribed without a Zenoh consumer'
             assert cpu_seconds(sender.pid) - before < 1.5, 'unexpected CPU while disconnected'
             assert sender.poll() is None
 
             receiver = open_receiver()
             burst(500, 150)  # Connected, but no matching Zenoh subscriber.
+            assert topic.get_num_connections() == 0, 'peer alone must not demand ROS data'
             values = []
             subscriber = receiver.declare_subscriber('reconnect/count',
                 lambda sample: values.append(int.from_bytes(sample.payload.to_bytes(), 'little')))
-            time.sleep(0.5)
+            wait_for(lambda: topic.get_num_connections() == 1, 'matching ROS subscription')
             assert not values, 'unmatched sample was replayed: {}'.format(values)
             fresh(values, 1000)
 
             subscriber.undeclare(); subscriber = None
+            wait_for(lambda: topic.get_num_connections() == 0, 'ROS unsubscribe on loss of matching')
             receiver.close(); receiver = None
-            time.sleep(1.0)  # Let the native matching change propagate before publishing offline.
             burst(2000, 150)
             assert sender.poll() is None
             receiver = open_receiver()
             burst(3000, 150)  # Reconnected, still no matching subscriber.
+            assert topic.get_num_connections() == 0, 'reconnected peer alone must not demand ROS data'
             values = []
             subscriber = receiver.declare_subscriber('reconnect/count',
                 lambda sample: values.append(int.from_bytes(sample.payload.to_bytes(), 'little')))
-            time.sleep(0.5)
+            wait_for(lambda: topic.get_num_connections() == 1, 'ROS resubscribe after matching')
             assert not values, 'disconnected/unmatched sample was replayed: {}'.format(values)
             fresh(values, 4000)
             assert not sender_udp_sockets(sender.pid), 'unexpected sender UDP socket'
