@@ -9,7 +9,7 @@ from unittest import mock
 from onboard_telemetry.sender import run
 
 
-CONFIG = {'connect': ['tcp/127.0.0.1:7447'], 'topics': [
+CONFIG = {'connect': ['udp/127.0.0.1:7447'], 'topics': [
     {'topic': '/robot/pose', 'type': 'test/Pose', 'key': 'robot/pose', 'max_hz': 2},
     {'topic': '/robot/path', 'type': 'test/Path', 'key': 'robot/path', 'max_hz': 1},
 ]}

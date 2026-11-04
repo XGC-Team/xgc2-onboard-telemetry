@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise late Zenoh peer, matching, reconnection, and stop on isolated loopback."""
+"""Exercise shared Zenoh router, matching, reconnection, and stop on isolated loopback."""
 import json
 import os
 import signal
@@ -61,24 +61,22 @@ def main():
     ros_port, zenoh_port = free_port(), free_port()
     os.environ['ROS_MASTER_URI'] = 'http://127.0.0.1:{}'.format(ros_port)
     os.environ['ROS_HOSTNAME'] = '127.0.0.1'
-    endpoint = 'tcp/127.0.0.1:{}'.format(zenoh_port)
+    endpoint = 'udp/127.0.0.1:{}'.format(zenoh_port)
     config = {'connect': [endpoint], 'topics': [
         {'topic': '/reconnect/count', 'type': 'std_msgs/UInt32',
          'key': 'reconnect/count', 'max_hz': 20}]}
     conf = zenoh_config(zenoh, config['connect'])
-    expected = {'mode': 'peer', 'listen/endpoints': [], 'connect/endpoints': [endpoint],
-                'connect/timeout_ms': -1, 'connect/exit_on_failure': False,
+    expected = {'mode': 'client', 'listen/endpoints': [], 'connect/endpoints': [endpoint],
                 'scouting/multicast/enabled': False, 'scouting/gossip/enabled': False}
     for key, value in expected.items():
         assert json.loads(conf.get_json(key)) == value, key
-    retry = json.loads(conf.get_json('connect/retry'))
-    assert retry['period_init_ms'] == 1000 and retry['period_max_ms'] == 4000
-    assert retry['period_increase_factor'] == 2.0
+
 
     master = subprocess.Popen(['roscore', '-p', str(ros_port)], stdout=subprocess.DEVNULL,
                               stderr=subprocess.DEVNULL)
     sender = None
     receiver = None
+    router = None
     subscriber = None
     with tempfile.TemporaryDirectory() as tmp:
         try:
@@ -119,15 +117,16 @@ def main():
                 assert time.monotonic() - started < 8
                 wait_for(lambda: topic.get_num_connections() == 0, 'ROS subscriber cleanup')
 
-            def open_receiver():
-                peer = zenoh.Config()
-                for key, value in [('mode', '"peer"'), ('listen/endpoints', json.dumps([endpoint])),
+            def open_router():
+                router_config = zenoh.Config()
+                for key, value in [('mode', '"router"'), ('listen/endpoints', json.dumps([endpoint])),
                                    ('scouting/multicast/enabled', 'false'),
                                    ('scouting/gossip/enabled', 'false')]:
-                    peer.insert_json5(key, value)
-                peer_session = zenoh.open(peer)
-                wait_for(lambda: bool(peer_session.info.peers_zid()), 'sender reconnect')
-                return peer_session
+                    router_config.insert_json5(key, value)
+                return zenoh.open(router_config)
+
+            def open_receiver():
+                return zenoh.open(zenoh_config(zenoh, [endpoint]))
 
             def burst(start, count):
                 for value in range(start, start + count):
@@ -144,13 +143,14 @@ def main():
                     time.sleep(0.1)
                 assert values and min(values) >= minimum, values
 
+            router = open_router()
             sender = start_sender()
-            assert not sender_udp_sockets(sender.pid), 'unexpected sender UDP socket'
+            assert sender_udp_sockets(sender.pid), 'sender has no UDP socket'
             before = cpu_seconds(sender.pid)
             burst(100, 150)
             time.sleep(2.2)
             assert topic.get_num_connections() == 0, 'ROS subscribed without a Zenoh consumer'
-            assert cpu_seconds(sender.pid) - before < 1.5, 'unexpected CPU while disconnected'
+            assert cpu_seconds(sender.pid) - before < 1.5, 'unexpected CPU without display demand'
             assert sender.poll() is None
 
             receiver = open_receiver()
@@ -162,6 +162,16 @@ def main():
             wait_for(lambda: topic.get_num_connections() == 1, 'matching ROS subscription')
             assert not values, 'unmatched sample was replayed: {}'.format(values)
             fresh(values, 1000)
+
+            # The selected router disappears and returns. Both existing SDK
+            # sessions, not new Workflow Runs or a product retry loop, own
+            # their reconnection and matching changes.
+            router.close(); router = None
+            wait_for(lambda: topic.get_num_connections() == 0, 'ROS unsubscribe after router loss', timeout=25)
+            values.clear()
+            router = open_router()
+            wait_for(lambda: topic.get_num_connections() == 1, 'matching after router return', timeout=25)
+            fresh(values, 1500)
 
             subscriber.undeclare(); subscriber = None
             wait_for(lambda: topic.get_num_connections() == 0, 'ROS unsubscribe on loss of matching')
@@ -177,15 +187,15 @@ def main():
             wait_for(lambda: topic.get_num_connections() == 1, 'ROS resubscribe after matching')
             assert not values, 'disconnected/unmatched sample was replayed: {}'.format(values)
             fresh(values, 4000)
-            assert not sender_udp_sockets(sender.pid), 'unexpected sender UDP socket'
+            assert sender_udp_sockets(sender.pid), 'sender UDP socket missing'
             stop_sender(sender); sender = None
             subscriber.undeclare(); subscriber = None
             receiver.close(); receiver = None
 
-            # Stop also works while the first connection is still unavailable.
+            # Stop also works when a connected client has no subscriber.
             sender = start_sender()
             stop_sender(sender); sender = None
-            print('PASS: late peer, no-match drop, reconnect, bounded idle, no UDP, stop online/offline')
+            print('PASS: shared UDP router loss/return, consumer reconnect, no-match drop, bounded idle, and stop')
         finally:
             if sender and sender.poll() is None:
                 sender.terminate()
@@ -195,6 +205,8 @@ def main():
                 subscriber.undeclare()
             if receiver:
                 receiver.close()
+            if router:
+                router.close()
             master.terminate()
             try: master.wait(timeout=5)
             except subprocess.TimeoutExpired: master.kill(); master.wait()

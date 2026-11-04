@@ -11,7 +11,7 @@ from onboard_telemetry.config import ConfigError, parse_config
 from onboard_telemetry.sender import LatestScheduler
 
 
-CONFIG = {'connect': ['tcp/127.0.0.1:7447'], 'topics': [
+CONFIG = {'connect': ['udp/127.0.0.1:7447'], 'topics': [
     {'topic': '/vehicle/pose', 'type': 'geometry_msgs/PoseStamped', 'key': 'vehicle/pose', 'max_hz': 20},
     {'topic': '/vehicle/path', 'type': 'nav_msgs/Path', 'key': 'vehicle/path', 'max_hz': 1}]}
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise a real Noetic master, ROS publishers, sender, and Zenoh peer."""
+"""Exercise a real Noetic master, ROS publishers, sender, and one Zenoh router."""
 import io
 import json
 import os
@@ -46,6 +46,7 @@ def main():
     master = subprocess.Popen(['roscore', '-p', str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     sender = None
     session = None
+    router = None
     with tempfile.TemporaryDirectory() as tmp:
         try:
             def master_ready():
@@ -55,16 +56,18 @@ def main():
                     return False
             wait_until(master_ready, 15, 'isolated roscore')
             zconfig = zenoh.Config()
-            for key, value in [('mode', '"peer"'), ('listen/endpoints', json.dumps(['tcp/127.0.0.1:{}'.format(zenoh_port)])),
+            for key, value in [('mode', '"router"'), ('listen/endpoints', json.dumps(['udp/127.0.0.1:{}'.format(zenoh_port)])),
                                ('scouting/multicast/enabled', 'false'), ('scouting/gossip/enabled', 'false')]:
                 zconfig.insert_json5(key, value)
-            session = zenoh.open(zconfig)
+            router = zenoh.open(zconfig)
+            endpoint = 'udp/127.0.0.1:{}'.format(zenoh_port)
+            session = zenoh.open(zenoh_config(zenoh, [endpoint]))
             received = []
             lock = threading.Lock()
             def receive(sample):
                 with lock: received.append((str(sample.key_expr), sample.payload.to_bytes(), time.monotonic()))
             sub = session.declare_subscriber('test/**', receive)
-            config = {'connect': ['tcp/127.0.0.1:{}'.format(zenoh_port)], 'topics': [
+            config = {'connect': [endpoint], 'topics': [
                 {'topic': '/test/count', 'type': 'std_msgs/UInt32', 'key': 'test/count', 'max_hz': 2},
                 {'topic': '/test/text', 'type': 'std_msgs/String', 'key': 'test/text', 'max_hz': 10},
                 {'topic': '/test/raw', 'type': 'std_msgs/Float64', 'key': 'test/raw', 'max_hz': 10},
@@ -72,10 +75,8 @@ def main():
             config_path = os.path.join(tmp, 'config.json')
             with open(config_path, 'w') as f: json.dump(config, f)
             sender_config = zenoh_config(zenoh, config['connect'])
-            assert json.loads(sender_config.get_json('mode')) == 'peer'
+            assert json.loads(sender_config.get_json('mode')) == 'client'
             assert json.loads(sender_config.get_json('listen/endpoints')) == []
-            assert json.loads(sender_config.get_json('connect/timeout_ms')) == -1
-            assert json.loads(sender_config.get_json('connect/exit_on_failure')) is False
             assert json.loads(sender_config.get_json('connect/endpoints')) == config['connect']
             assert json.loads(sender_config.get_json('scouting/multicast/enabled')) is False
             assert json.loads(sender_config.get_json('scouting/gossip/enabled')) is False
@@ -146,6 +147,7 @@ def main():
                 try: sender.wait(timeout=5)
                 except subprocess.TimeoutExpired: sender.kill(); sender.wait()
             if session: session.close()
+            if router: router.close()
             master.terminate()
             try: master.wait(timeout=5)
             except subprocess.TimeoutExpired: master.kill(); master.wait()

@@ -90,16 +90,11 @@ class LatestScheduler:
 
 def zenoh_config(zenoh, endpoints):
     config = zenoh.Config()
-    # Peer mode can start disconnected and reconnect in the SDK background.
-    # With no listeners or scouting, it only dials the configured endpoints.
-    config.insert_json5('mode', '"peer"')
+    # The endpoint is the platform's selected shared router, never a listener
+    # owned by the display. Zenoh owns its connection and reconnection.
+    config.insert_json5('mode', '"client"')
     config.insert_json5('listen/endpoints', '[]')
     config.insert_json5('connect/endpoints', json.dumps(endpoints))
-    config.insert_json5('connect/timeout_ms', '-1')
-    config.insert_json5('connect/exit_on_failure', 'false')
-    config.insert_json5('connect/retry', json.dumps({
-        'period_init_ms': 1000, 'period_max_ms': 4000, 'period_increase_factor': 2.0}))
-    config.insert_json5('open/return_conditions/connect_scouted', 'false')
     config.insert_json5('scouting/multicast/enabled', 'false')
     config.insert_json5('scouting/gossip/enabled', 'false')
     return config

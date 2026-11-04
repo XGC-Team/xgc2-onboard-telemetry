@@ -9,15 +9,14 @@ key and its maximum send rate.
 
 - Python 3.8 and ROS 1 Noetic, including `rospy`, `roslib` and the configured
   message packages.
-- `eclipse-zenoh` Python SDK **1.5.1**, installed in the runtime environment.
+- `eclipse-zenoh` Python SDK **1.8.0**, installed in the runtime environment.
   The product's installer does not install dependencies. The SDK's official
   wheels include Python 3.8 and Linux x86-64/ARM64 support; choose the wheel
-  matching the target's architecture and libc. See [SDK package and files](https://pypi.org/project/eclipse-zenoh/1.5.1/).
-- A Zenoh router or peer reachable at the configured endpoint. The sender can
-  start before the receiver and reconnect after it restarts. It uses Zenoh peer
-  mode with no listening endpoint, connects only to the explicitly configured
-  endpoints, and disables multicast and gossip scouting. Zenoh retries connections
-  in the background with backoff from one to four seconds.
+  matching the target's architecture and libc. See [SDK package and files](https://pypi.org/project/eclipse-zenoh/1.8.0/).
+- The workflow-selected Zenoh router must be reachable at the configured UDP
+  unicast endpoint. The sender uses client mode without its own listener and
+  disables multicast and gossip scouting; SDK connection and reconnection
+  behavior are the same as for other clients of that router.
 
 ## Install and run
 
@@ -100,6 +99,6 @@ python3 tests/integration_reconnect.py
 ```
 
 The integration test starts a temporary local ROS master, ROS publishers and a
-Zenoh peer on loopback, then checks exact serialized bytes, type matching,
+Zenoh router and clients on loopback, then checks exact serialized bytes, type matching,
 explicit mappings, rate limiting, latest-value delivery and shutdown. It does
 not use a running ROS master or any existing Zenoh session.
