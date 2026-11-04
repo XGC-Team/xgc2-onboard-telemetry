@@ -44,7 +44,7 @@ To build the product's architecture-independent Debian package:
 
 The package installs the same entrypoint and Python files under `/usr`. Its
 Debian dependencies are Python, Noetic `rospy` and `roslib`, and the existing
-`xgc2-zenoh` SDK package `1.8.0-2~focal`. Its SDK version is
+`xgc2-zenoh` SDK package in the 1.8.x series. Its SDK version is
 recorded in `requirements-runtime.txt`; no installation script downloads it.
 Installing or removing this package does not manage ROS, the SDK, or services.
 The package also installs the `xgc2-onboard-telemetry` XGC process definition.
