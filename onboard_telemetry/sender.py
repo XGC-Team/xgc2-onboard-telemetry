@@ -90,9 +90,9 @@ class LatestScheduler:
 
 def zenoh_config(zenoh, endpoints):
     config = zenoh.Config()
-    # Peer mode can start disconnected and reconnect in the SDK background.
-    # With no listeners or scouting, it only dials the configured endpoints.
-    config.insert_json5('mode', '"peer"')
+    # Client mode selects the workflow-owned router and dials only the
+    # explicitly configured endpoint. SDK open success is the connection fact.
+    config.insert_json5('mode', '"client"')
     config.insert_json5('listen/endpoints', '[]')
     config.insert_json5('connect/endpoints', json.dumps(endpoints))
     config.insert_json5('connect/timeout_ms', '-1')

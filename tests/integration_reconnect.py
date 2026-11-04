@@ -66,7 +66,7 @@ def main():
         {'topic': '/reconnect/count', 'type': 'std_msgs/UInt32',
          'key': 'reconnect/count', 'max_hz': 20}]}
     conf = zenoh_config(zenoh, config['connect'])
-    expected = {'mode': 'peer', 'listen/endpoints': [], 'connect/endpoints': [endpoint],
+    expected = {'mode': 'client', 'listen/endpoints': [], 'connect/endpoints': [endpoint],
                 'connect/timeout_ms': -1, 'connect/exit_on_failure': False,
                 'scouting/multicast/enabled': False, 'scouting/gossip/enabled': False}
     for key, value in expected.items():

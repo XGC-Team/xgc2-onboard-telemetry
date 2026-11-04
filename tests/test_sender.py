@@ -8,7 +8,7 @@ import unittest
 from unittest import mock
 
 from onboard_telemetry.config import ConfigError, parse_config
-from onboard_telemetry.sender import LatestScheduler
+from onboard_telemetry.sender import LatestScheduler, zenoh_config
 
 
 CONFIG = {'connect': ['tcp/127.0.0.1:7447'], 'topics': [
@@ -46,6 +46,21 @@ class ConfigTests(unittest.TestCase):
         self.assertNotIn('services', definition)
         self.assertEqual(definition['stop']['signal'], 'SIGINT')
         self.assertEqual(set(definition['parameters']['required']), {'configuration', 'rosMasterUri', 'rosIp'})
+
+    def test_client_connects_only_to_the_selected_endpoint(self):
+        class FakeConfig:
+            def __init__(self):
+                self.values = {}
+            def insert_json5(self, key, value):
+                self.values[key] = json.loads(value)
+        class FakeZenoh:
+            Config = FakeConfig
+        config = zenoh_config(FakeZenoh, ['udp/192.0.2.10:7447'])
+        self.assertEqual(config.values['mode'], 'client')
+        self.assertEqual(config.values['listen/endpoints'], [])
+        self.assertEqual(config.values['connect/endpoints'], ['udp/192.0.2.10:7447'])
+        self.assertFalse(config.values['scouting/multicast/enabled'])
+        self.assertFalse(config.values['scouting/gossip/enabled'])
 
     def test_rejects_missing_or_ambiguous_configuration(self):
         cases = []

@@ -72,7 +72,7 @@ def main():
             config_path = os.path.join(tmp, 'config.json')
             with open(config_path, 'w') as f: json.dump(config, f)
             sender_config = zenoh_config(zenoh, config['connect'])
-            assert json.loads(sender_config.get_json('mode')) == 'peer'
+            assert json.loads(sender_config.get_json('mode')) == 'client'
             assert json.loads(sender_config.get_json('listen/endpoints')) == []
             assert json.loads(sender_config.get_json('connect/timeout_ms')) == -1
             assert json.loads(sender_config.get_json('connect/exit_on_failure')) is False
