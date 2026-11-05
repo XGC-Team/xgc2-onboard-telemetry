@@ -9,10 +9,10 @@ key and its maximum send rate.
 
 - Python 3.8 and ROS 1 Noetic, including `rospy`, `roslib` and the configured
   message packages.
-- `eclipse-zenoh` Python SDK **1.8.0**, installed in the runtime environment.
-  The product's installer does not install dependencies. The SDK's official
-  wheels include Python 3.8 and Linux x86-64/ARM64 support; choose the wheel
-  matching the target's architecture and libc. See [SDK package and files](https://pypi.org/project/eclipse-zenoh/1.8.0/).
+- `eclipse-zenoh` Python SDK **1.10.2**, provided by the existing `xgc2-zenoh`
+  APT package. Its binding is built from the official Zenoh sources for the
+  target architecture and libc, including support for Python 3.8. The product's
+  source installer does not install dependencies.
 - The workflow-selected Zenoh router must be reachable at the configured UDP
   unicast endpoint. The sender uses client mode without its own listener and
   disables multicast and gossip scouting; SDK connection and reconnection
@@ -44,8 +44,8 @@ To build the product's architecture-independent Debian package:
 
 The package installs the same entrypoint and Python files under `/usr`. Its
 Debian dependencies are Python, Noetic `rospy` and `roslib`, and the existing
-`xgc2-zenoh` SDK package in the 1.8.x series. Its SDK version is
-recorded in `requirements-runtime.txt`; no installation script downloads it.
+`xgc2-zenoh` SDK package for 1.10.2. Its SDK version is recorded in
+`requirements-runtime.txt`; no installation script downloads it.
 Installing or removing this package does not manage ROS, the SDK, or services.
 The package also installs the `xgc2-onboard-telemetry` XGC process definition.
 It accepts a `configuration` JSON object, `rosMasterUri` and `rosIp`, sources
