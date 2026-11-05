@@ -22,7 +22,7 @@ Section: net
 Priority: optional
 Architecture: all
 Maintainer: XGC2 Engineering <141200314+lxk36@users.noreply.github.com>
-Depends: python3 (>= 3.8), ros-noetic-rospy, ros-noetic-roslib, xgc2-zenoh (>= 1.8.0-1~), xgc2-zenoh (<< 1.9~)
+Depends: python3 (>= 3.8), ros-noetic-rospy, ros-noetic-roslib, xgc2-zenoh (>= 1.10.2-1~), xgc2-zenoh (<< 1.10.3~)
 Description: Configured ROS1 to Zenoh onboard telemetry sender
  Forwards selected ROS1 messages as their original serialized bytes to
  explicitly configured Zenoh keys, with per-topic latest-value rate limiting.

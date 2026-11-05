@@ -16,7 +16,7 @@ deb="${packages[0]}"
 [[ $(dpkg-deb -f "$deb" Package) == xgc2-onboard-telemetry ]]
 [[ $(dpkg-deb -f "$deb" Version) == "$(cat "$root/VERSION")" ]]
 [[ $(dpkg-deb -f "$deb" Architecture) == all ]]
-[[ $(dpkg-deb -f "$deb" Depends) == 'python3 (>= 3.8), ros-noetic-rospy, ros-noetic-roslib, xgc2-zenoh (>= 1.8.0-1~), xgc2-zenoh (<< 1.9~)' ]]
+[[ $(dpkg-deb -f "$deb" Depends) == 'python3 (>= 3.8), ros-noetic-rospy, ros-noetic-roslib, xgc2-zenoh (>= 1.10.2-1~), xgc2-zenoh (<< 1.10.3~)' ]]
 ! dpkg-deb -c "$deb" | grep -E 'site-packages|dist-packages|libzenoh|/zenoh/'
 printf 'preserve\n' > "$tmp/unrelated"
 dpkg --install "$deb"
