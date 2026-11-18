@@ -7,8 +7,10 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import xmlrpc.client
+from xmlrpc.server import SimpleXMLRPCServer
 
 import rospy
 from std_msgs.msg import UInt32
@@ -92,11 +94,14 @@ def main():
             with open(path, 'w') as stream:
                 json.dump(config, stream)
 
-            def start_sender():
+            def start_sender(master_uri=None):
                 executable = os.environ.get('TELEMETRY_BIN')
                 command = [executable] if executable else [sys.executable, '-m', 'onboard_telemetry']
+                env = os.environ.copy()
+                if master_uri is not None:
+                    env['ROS_MASTER_URI'] = master_uri
                 process = subprocess.Popen(command + ['--config', path], stdout=subprocess.PIPE,
-                                           stderr=subprocess.STDOUT, text=True)
+                                           stderr=subprocess.STDOUT, text=True, env=env)
                 def node_registered():
                     try:
                         code, _, uri = xmlrpc.client.ServerProxy(os.environ['ROS_MASTER_URI']).lookupNode(
@@ -109,9 +114,11 @@ def main():
                     raise AssertionError('sender exited: ' + process.stdout.read())
                 return process
 
-            def stop_sender(process):
+            def stop_sender(process, release_reply=None):
                 started = time.monotonic()
                 process.send_signal(signal.SIGINT)
+                if release_reply is not None:
+                    release_reply.set()
                 process.wait(timeout=8)
                 assert process.returncode == 0, process.stdout.read()
                 assert time.monotonic() - started < 8
@@ -195,7 +202,36 @@ def main():
             # Stop also works when a connected client has no subscriber.
             sender = start_sender()
             stop_sender(sender); sender = None
-            print('PASS: shared UDP router loss/return, consumer reconnect, no-match drop, bounded idle, and stop')
+            # Hold a successful native unregister reply across the process's
+            # SIGINT. rospy shutdown uses the same cached ROS master proxy.
+            with SimpleXMLRPCServer(('127.0.0.1', 0), logRequests=False) as proxy:
+                reply_pending = threading.Event()
+                release_reply = threading.Event()
+                def forward(method, params):
+                    with xmlrpc.client.ServerProxy(os.environ['ROS_MASTER_URI']) as upstream:
+                        result = getattr(upstream, method)(*params)
+                    if method == 'unregisterSubscriber' and params[:2] == ('/onboard_telemetry', '/reconnect/count'):
+                        assert result[0] == 1
+                        reply_pending.set()
+                        assert release_reply.wait(5), 'held unregister reply was never released'
+                    return result
+                proxy._dispatch = forward
+                service = threading.Thread(target=proxy.serve_forever)
+                service.start()
+                try:
+                    receiver = open_receiver()
+                    subscriber = receiver.declare_subscriber('reconnect/count', lambda sample: None)
+                    sender = start_sender('http://127.0.0.1:{}'.format(proxy.server_address[1]))
+                    wait_for(lambda: topic.get_num_connections() == 1, 'ROS subscriber before overlapping stop')
+                    subscriber.undeclare(); subscriber = None
+                    assert reply_pending.wait(5), 'no native unregister request'
+                    stop_sender(sender, release_reply); sender = None
+                finally:
+                    release_reply.set()
+                    proxy.shutdown()
+                    service.join()
+
+            print('PASS: shared UDP router loss/return, consumer reconnect, no-match drop, bounded idle, and stop during ROS unregistration')
         finally:
             if sender and sender.poll() is None:
                 sender.terminate()

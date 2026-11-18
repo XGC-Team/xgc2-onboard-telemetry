@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 from .config import ConfigError, load_config, parse_config
 
@@ -16,7 +17,10 @@ def main():
         import rospy
         from .sender import run
         rospy.init_node('onboard_telemetry', anonymous=False, disable_rosout=False)
-        run(config)
+        # rospy handles SIGINT/SIGTERM on the main thread. Registration RPCs
+        # hold a non-reentrant proxy lock which rospy also needs on shutdown.
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            worker.submit(run, config).result()
     except (ConfigError, ValueError, OSError, ImportError) as exc:
         print('onboard-telemetry: {}'.format(exc), file=sys.stderr)
         return 1
